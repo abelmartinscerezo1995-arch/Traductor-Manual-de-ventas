@@ -337,6 +337,14 @@ let translating = false;
 function sanitizarHTML(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   doc.querySelectorAll('style, link, script, meta, title, iframe, noscript').forEach(e => e.remove());
+  // Si es una página completa (Drupal), quedarse solo con el contenido principal
+  const CONTENIDO = ['#block-system-main .content', '#block-system-main', '.region-content', '#content-wrapper', 'main', 'article'];
+  for (const sel of CONTENIDO) {
+    const el = doc.querySelector(sel);
+    if (el) { doc.body.innerHTML = el.innerHTML; break; }
+  }
+  // Eliminar restos de interfaz de la página original (menús, cabeceras, etc.)
+  doc.querySelectorAll('header, footer, nav, aside, .contextual-links-wrapper, .tabs, .action-links, .rdf-meta, .submitted, #toolbar, #skip-link, #toTop').forEach(e => e.remove());
   return doc.body.innerHTML;
 }
 
