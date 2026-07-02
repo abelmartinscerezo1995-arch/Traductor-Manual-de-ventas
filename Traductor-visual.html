@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Traductor Visual</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: #eef2f7; margin: 0; padding: 20px; color: #1a2a3a; }
+  h1 { font-size: 18px; margin: 0 0 20px; color: #0d3a6e; }
+
+  .card { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 2px 8px rgba(0,0,0,.08); margin-bottom: 16px; }
+  .card h3 { margin: 0 0 10px; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: .05em; }
+
+  #input-html { width: 100%; height: 200px; font-family: monospace; font-size: 12px;
+    border: 1px solid #c8d4e4; border-radius: 6px; padding: 10px; resize: vertical; }
+
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+
+  .btn { border: none; border-radius: 6px; padding: 9px 18px; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: opacity .15s; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn-primary { background: #1a6ecf; color: #fff; }
+  .btn-success { background: #1a9e5c; color: #fff; }
+  .btn-warn    { background: #e07b00; color: #fff; }
+  .btn-danger  { background: #c0392b; color: #fff; }
+  .btn-copy    { background: #f0f4fa; color: #1a2a3a; border: 1px solid #c8d4e4; padding: 6px 14px; font-size: 12px; }
+  .btn-copy.copied { background: #1a9e5c; color: #fff; border-color: #1a9e5c; }
+  .btn:not(:disabled):hover { opacity: .85; }
+
+  #status { font-size: 12px; color: #555; font-style: italic; }
+  #status.error { color: #c0392b; font-weight: 600; font-style: normal; }
+  #status.ok    { color: #1a9e5c; font-weight: 600; font-style: normal; }
+
+  .progress-wrap { width: 200px; height: 6px; background: #e0e8f0; border-radius: 3px; display: none; }
+  .progress-bar  { height: 6px; background: #e07b00; border-radius: 3px; width: 0%; transition: width .2s; }
+
+  .lang-tabs { display: flex; gap: 6px; margin-bottom: 0; }
+  .lang-tab { border: 2px solid #c8d4e4; background: #f0f4fa; border-radius: 7px 7px 0 0;
+    padding: 7px 20px; font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; position: relative; }
+  .lang-tab:disabled { opacity: .4; cursor: not-allowed; }
+  .lang-tab.active { background: #fff; border-bottom-color: #fff; }
+  .lang-tab[data-lang="es"].active { color: #c0392b; border-color: #c0392b; border-bottom-color: #fff; }
+  .lang-tab[data-lang="ca"].active { color: #e07b00; border-color: #e07b00; border-bottom-color: #fff; }
+  .lang-tab[data-lang="fr"].active { color: #1a6ecf; border-color: #1a6ecf; border-bottom-color: #fff; }
+  .lang-tab[data-lang="en"].active { color: #1a9e5c; border-color: #1a9e5c; border-bottom-color: #fff; }
+
+  .lang-tab .tab-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: #ccc; margin-left: 6px; vertical-align: middle; }
+  .lang-tab.translated .tab-dot { background: #1a9e5c; }
+  .lang-tab.has-error .tab-dot  { background: #c0392b; }
+
+  .preview-wrap { border: 2px solid #c8d4e4; border-radius: 0 8px 8px 8px; background: #fff;
+    min-height: 200px; padding: 20px; overflow: auto; resize: vertical; }
+  .preview-wrap.lang-es { border-color: #c0392b; }
+  .preview-wrap.lang-ca { border-color: #e07b00; }
+  .preview-wrap.lang-fr { border-color: #1a6ecf; }
+  .preview-wrap.lang-en { border-color: #1a9e5c; }
+
+  [contenteditable]:focus { outline: 2px solid #f0a500; border-radius: 2px; }
+
+  .untranslated { background: #fff3cd; border-left: 3px solid #e07b00; padding: 8px 12px;
+    font-size: 12px; margin-bottom: 10px; border-radius: 0 4px 4px 0; display: none; }
+
+  /* Estilos CMS básicos */
+  .bitanube-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 12px; }
+  .bitanube-table td { border: 1px solid #d0d8e8; padding: 7px 10px; vertical-align: middle; }
+  .bitanube-table caption { font-weight: 700; font-size: 15px; padding: 6px 0; text-align: left; }
+  .caption-col { background: #0d3a6e; color: #fff; font-weight: 700; }
+  .impar-col { background: #f7f9fc; }
+  .par-col   { background: #fff; }
+  .first-col { font-weight: 600; }
+  .rtecenter { text-align: center; }
+  .bitanube-table a.button { display: inline-block; background: #1a6ecf; color: #fff; border-radius: 4px;
+    padding: 4px 12px; text-decoration: none; font-size: 12px; }
+  p { margin: 6px 0; font-size: 14px; }
+  ul { margin: 4px 0 8px; padding-left: 22px; font-size: 14px; }
+
+  /* Outputs */
+  .outputs { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+  .out-box { position: relative; }
+  .out-box-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .out-box h4 { margin: 0; font-size: 12px; font-weight: 700; }
+  .out-box textarea { width: 100%; height: 280px; font-family: monospace; font-size: 11px;
+    border: 1px solid #c8d4e4; border-radius: 6px; padding: 8px; resize: vertical; }
+  .out-es h4 { color: #c0392b; }
+  .out-ca h4 { color: #e07b00; }
+  .out-fr h4 { color: #1a6ecf; }
+  .out-en h4 { color: #1a9e5c; }
+
+  .note { font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+
+<h1>Traductor Visual</h1>
+
+<!-- PASO 1 -->
+<div class="card">
+  <h3>1 · Pega el HTML en español</h3>
+  <textarea id="input-html" placeholder="Pega aquí el HTML del bloque CMS..."></textarea>
+  <div class="toolbar" style="margin-top:10px;">
+    <button class="btn btn-primary" onclick="renderizar()">▶ Renderizar y editar</button>
+    <button class="btn btn-danger"  onclick="resetear()">✕ Limpiar todo</button>
+    <span class="note">Al renderizar podrás editar cada celda visualmente en los 4 idiomas.</span>
+  </div>
+</div>
+
+<!-- PASO 2 -->
+<div class="card">
+  <h3>2 · Edición visual por idioma</h3>
+  <div class="toolbar">
+    <button class="btn btn-warn" id="btn-traducir" onclick="autoTraducir()" disabled>⚡ Auto-traducir CA / FR / EN</button>
+    <div class="progress-wrap" id="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    <span id="status"></span>
+  </div>
+  <div class="lang-tabs">
+    <button class="lang-tab active" data-lang="es" onclick="switchTab('es')">🇪🇸 ES<span class="tab-dot"></span></button>
+    <button class="lang-tab" data-lang="ca" onclick="switchTab('ca')" disabled>🏔 CA<span class="tab-dot"></span></button>
+    <button class="lang-tab" data-lang="fr" onclick="switchTab('fr')" disabled>🇫🇷 FR<span class="tab-dot"></span></button>
+    <button class="lang-tab" data-lang="en" onclick="switchTab('en')" disabled>🇬🇧 EN<span class="tab-dot"></span></button>
+  </div>
+  <div id="untranslated-warn" class="untranslated">
+    ⚠ Algunos textos no se pudieron traducir y se han dejado en español. Revisa y corrige manualmente.
+  </div>
+  <div class="preview-wrap lang-es" id="preview">
+    <p style="color:#bbb;font-style:italic">Renderiza el HTML para empezar a editar…</p>
+  </div>
+</div>
+
+<!-- PASO 3 -->
+<div class="card">
+  <h3>3 · Generar HTML para los 4 idiomas</h3>
+  <div class="toolbar">
+    <button class="btn btn-success" onclick="generar()" id="btn-generar" disabled>⬇ Generar HTML</button>
+    <span style="color:#c0392b; font-weight:700; font-size:19px; margin-left:20px;">⚠ Revisar links manualmente antes de publicar ⚠</span>
+  </div>
+  <div class="outputs">
+    <div class="out-box out-es">
+      <div class="out-box-header"><h4>Español (ES)</h4><button class="btn btn-copy" onclick="copiar('out-es',this)">Copiar</button></div>
+      <textarea id="out-es" readonly></textarea>
+    </div>
+    <div class="out-box out-ca">
+      <div class="out-box-header"><h4>Català (CA)</h4><button class="btn btn-copy" onclick="copiar('out-ca',this)">Copiar</button></div>
+      <textarea id="out-ca" readonly></textarea>
+    </div>
+    <div class="out-box out-fr">
+      <div class="out-box-header"><h4>Français (FR)</h4><button class="btn btn-copy" onclick="copiar('out-fr',this)">Copiar</button></div>
+      <textarea id="out-fr" readonly></textarea>
+    </div>
+    <div class="out-box out-en">
+      <div class="out-box-header"><h4>English (EN)</h4><button class="btn btn-copy" onclick="copiar('out-en',this)">Copiar</button></div>
+      <textarea id="out-en" readonly></textarea>
+    </div>
+  </div>
+</div>
+
+<script>
+const LANGS = ['es','ca','fr','en'];
+const store  = { es:'', ca:'', fr:'', en:'' };
+const errors = { es:false, ca:false, fr:false, en:false };
+let currentLang = 'es';
+let ready = false;
+let translating = false;
+
+function renderizar() {
+  const html = document.getElementById('input-html').value.trim();
+  if (!html) return;
+  LANGS.forEach(l => { store[l] = html; errors[l] = false; });
+  LANGS.forEach(l => setTabState(l, 'none'));
+  ready = false;
+  switchTab('es');
+  ready = true;
+  document.getElementById('btn-traducir').disabled = false;
+  document.getElementById('btn-generar').disabled = false;
+  setStatus('HTML renderizado. Edita las celdas o pulsa Auto-traducir.', '');
+}
+
+function resetear() {
+  if (!confirm('¿Limpiar todo y empezar de nuevo?')) return;
+  document.getElementById('input-html').value = '';
+  LANGS.forEach(l => { store[l] = ''; errors[l] = false; setTabState(l, 'none'); });
+  ready = false;
+  currentLang = 'es';
+  document.getElementById('preview').innerHTML = '<p style="color:#bbb;font-style:italic">Renderiza el HTML para empezar a editar…</p>';
+  document.getElementById('preview').className = 'preview-wrap lang-es';
+  document.getElementById('btn-traducir').disabled = true;
+  document.getElementById('btn-generar').disabled = true;
+  LANGS.forEach(l => document.getElementById('out-'+l).value = '');
+  document.querySelectorAll('.lang-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.lang === 'es');
+    if (t.dataset.lang !== 'es') t.disabled = true;
+  });
+  document.getElementById('untranslated-warn').style.display = 'none';
+  setStatus('', '');
+}
+
+function switchTab(lang) {
+  if (ready) saveEdits();
+  currentLang = lang;
+  const preview = document.getElementById('preview');
+  preview.innerHTML = store[lang] || '<p style="color:#bbb;font-style:italic">Sin contenido aún.</p>';
+  makeEditable(preview);
+  document.querySelectorAll('.lang-tab').forEach(t => t.classList.toggle('active', t.dataset.lang === lang));
+  preview.className = 'preview-wrap lang-' + lang;
+  document.getElementById('untranslated-warn').style.display = errors[lang] ? 'block' : 'none';
+}
+
+function saveEdits() {
+  store[currentLang] = document.getElementById('preview').innerHTML;
+}
+
+function makeEditable(root) {
+  fixTableCells(root);
+  root.querySelectorAll('td, caption, p, li, h1, h2, h3, h4, h5, h6').forEach(el => el.setAttribute('contenteditable','true'));
+}
+
+function fixTableCells(root) {
+  root.querySelectorAll('table').forEach(table => {
+    const rows = Array.from(table.querySelectorAll('tr'));
+    const effectiveCols = r => Array.from(r.cells).reduce((s, c) => s + (parseInt(c.getAttribute('colspan')) || 1), 0);
+    const maxCols = Math.max(...rows.map(effectiveCols));
+    rows.forEach(row => {
+      while (effectiveCols(row) < maxCols) row.insertCell(-1);
+    });
+  });
+}
+
+async function autoTraducir() {
+  if (!ready || translating) return;
+  translating = true;
+  saveEdits();
+  const btn = document.getElementById('btn-traducir');
+  btn.disabled = true;
+  document.getElementById('progress-wrap').style.display = 'block';
+  setProgress(0);
+  setStatus('Preparando traducción…', '');
+
+  const parser = new DOMParser();
+  const baseDoc = parser.parseFromString(store['es'], 'text/html');
+  const baseNodes = collectTextNodes(baseDoc.body);
+  const unique = [...new Set(baseNodes.map(n => n.nodeValue.trim()).filter(t => t && !isSkippable(t)))];
+
+  const total = unique.length * 3;
+  let done = 0;
+
+  const [tmapCA, tmapFR, tmapEN] = await Promise.all(
+    ['ca','fr','en'].map(lang =>
+      traducirTextos(unique, lang, () => { done++; setProgress(Math.round(done/total*100)); })
+    )
+  );
+
+  const tmaps = { ca: tmapCA, fr: tmapFR, en: tmapEN };
+  let anyError = false;
+
+  for (const lang of ['ca','fr','en']) {
+    const doc = parser.parseFromString(store['es'], 'text/html');
+    const nodes = collectTextNodes(doc.body);
+    let langError = false;
+    nodes.forEach(node => {
+      const t = node.nodeValue.trim();
+      if (tmaps[lang][t]) {
+        if (tmaps[lang][t] === '__ERROR__') { langError = true; anyError = true; }
+        else node.nodeValue = node.nodeValue.replace(t, tmaps[lang][t]);
+      }
+    });
+    errors[lang] = langError;
+    store[lang] = doc.body.innerHTML;
+    setTabState(lang, langError ? 'error' : 'ok');
+  }
+
+  setTabState('es', 'ok');
+  btn.disabled = false;
+  document.getElementById('progress-wrap').style.display = 'none';
+  document.querySelectorAll('.lang-tab[data-lang="ca"],.lang-tab[data-lang="fr"],.lang-tab[data-lang="en"]').forEach(t => t.disabled = false);
+  setProgress(0);
+  setStatus(anyError ? '⚠ Traducción completada con algunos errores. Revisa las pestañas en rojo.' : '✓ Traducción completada. Revisa cada pestaña y corrige si hace falta.', anyError ? 'error' : 'ok');
+  translating = false;
+  switchTab(currentLang);
+}
+
+async function traducirTextos(textos, lang, onProgress) {
+  const tmap = {};
+  await Promise.all(textos.map(async text => {
+    try {
+      const res = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl='
+        + lang + '&dt=t&q=' + encodeURIComponent(text));
+      const data = await res.json();
+      const translated = data[0]?.map(s => s[0]).join('') || '';
+      tmap[text] = translated || '__ERROR__';
+    } catch(e) {
+      tmap[text] = '__ERROR__';
+    }
+    onProgress();
+  }));
+  return tmap;
+}
+
+function collectTextNodes(root) {
+  const nodes = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    const t = node.nodeValue.trim();
+    if (t && !isSkippable(t) && !node.parentElement.closest('a')) nodes.push(node);
+  }
+  return nodes;
+}
+
+function isSkippable(text) {
+  if (text.length < 3) return true;
+  if (/^[\d\s€%&;.,:\-+]+$/.test(text)) return true;
+  if (/^https?:\/\//.test(text)) return true;
+  return false;
+}
+
+function setTabState(lang, state) {
+  const tab = document.querySelector('.lang-tab[data-lang="'+lang+'"]');
+  if (!tab) return;
+  tab.classList.remove('translated','has-error');
+  if (state === 'ok')    tab.classList.add('translated');
+  if (state === 'error') tab.classList.add('has-error');
+}
+
+function setProgress(pct) {
+  document.getElementById('progress-bar').style.width = pct + '%';
+}
+
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = type || '';
+}
+
+function generar() {
+  saveEdits();
+  LANGS.forEach(lang => {
+    document.getElementById('out-'+lang).value = cleanHTML(store[lang] || '');
+  });
+}
+
+function cleanHTML(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+  doc.querySelectorAll('br').forEach(br => {
+    if (!br.previousSibling && !br.nextSibling) br.remove();
+  });
+  doc.querySelectorAll('div:empty, span:empty').forEach(el => el.remove());
+  return doc.body.innerHTML;
+}
+
+function copiar(id, btn) {
+  const text = document.getElementById(id).value;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓ Copiado';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copiar'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+</script>
+</body>
+</html>
