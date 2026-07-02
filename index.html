@@ -332,10 +332,19 @@ let currentLang = 'es';
 let ready = false;
 let translating = false;
 
+/* Elimina estilos, scripts y demás elementos de página completa para que el
+   HTML pegado no afecte al aspecto del propio traductor */
+function sanitizarHTML(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('style, link, script, meta, title, iframe, noscript').forEach(e => e.remove());
+  return doc.body.innerHTML;
+}
+
 function renderizar() {
   const html = document.getElementById('input-html').value.trim();
   if (!html) return;
-  LANGS.forEach(l => { store[l] = html; errors[l] = false; });
+  const limpio = sanitizarHTML(html);
+  LANGS.forEach(l => { store[l] = limpio; errors[l] = false; });
   LANGS.forEach(l => setTabState(l, 'none'));
   ready = false;
   switchTab('es');
