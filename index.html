@@ -97,6 +97,8 @@
   .gloss-table input { width: 100%; border: 1px solid transparent; border-radius: 4px; padding: 5px 7px; font-size: 12px; background: transparent; }
   .gloss-table input:hover { border-color: #c8d4e4; }
   .gloss-table input:focus { outline: none; border-color: #1a6ecf; background: #fff; }
+  .gloss-table input[readonly] { color: #666; cursor: default; }
+  .gloss-table input[readonly]:hover, .gloss-table input[readonly]:focus { border-color: transparent; background: transparent; }
   .gloss-table .g-term input { font-weight: 700; }
   .gloss-del { border: none; background: transparent; color: #c0392b; cursor: pointer; font-size: 13px; padding: 4px 8px; }
   .gloss-hint { font-size: 11px; color: #888; margin-top: 8px; }
@@ -121,7 +123,7 @@
 <div class="card">
   <details class="gloss" id="gloss-details">
     <summary>📖 Glosario de términos protegidos <span class="note" id="gloss-count"></span></summary>
-    <div class="gloss-hint">Estos términos nunca se envían al traductor automático: se sustituyen por la traducción fija de cada idioma (o se dejan tal cual si la casilla está vacía). Los cambios se guardan automáticamente en este navegador.</div>
+    <div class="gloss-hint">Estos términos nunca se envían al traductor automático: se sustituyen por la traducción fija de cada idioma (o se dejan tal cual si la casilla está vacía). El glosario oficial no se puede modificar; puedes añadir términos nuevos, pero solo duran hasta recargar la página.</div>
     <table class="gloss-table">
       <thead><tr><th>Término (ES)</th><th>CA</th><th>FR</th><th>EN</th><th></th></tr></thead>
       <tbody id="gloss-body"></tbody>
@@ -237,21 +239,13 @@ const GLOSS_KEY = 'traductor-visual-glosario';
 let glossary = [];
 
 function glossLoad() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(GLOSS_KEY));
-    glossary = Array.isArray(saved) && saved.length ? saved : GLOSS_DEFAULTS.map(g => ({...g}));
-  } catch(e) { glossary = GLOSS_DEFAULTS.map(g => ({...g})); }
-  // Fusionar: términos nuevos añadidos al código (GLOSS_DEFAULTS) que aún no
-  // estén en el glosario guardado del navegador se incorporan automáticamente.
-  const existing = new Set(glossary.map(g => g.term.trim().toLowerCase()));
-  GLOSS_DEFAULTS.forEach(d => {
-    if (!existing.has(d.term.trim().toLowerCase())) glossary.push({...d});
-  });
+  // Versión pública: el glosario por defecto es fijo y no se persiste nada.
+  // Se pueden añadir términos nuevos, pero se pierden al recargar la página.
+  glossary = GLOSS_DEFAULTS.map(g => ({...g, fixed: true}));
   glossRender();
 }
 
 function glossSave() {
-  localStorage.setItem(GLOSS_KEY, JSON.stringify(glossary));
   glossCount();
 }
 
@@ -271,15 +265,22 @@ function glossRender() {
       const inp = document.createElement('input');
       inp.value = g[field];
       inp.placeholder = field === 'term' ? 'término en español' : '(no traducir)';
-      inp.oninput = () => { glossary[i][field] = inp.value; glossSave(); };
+      if (g.fixed) {
+        inp.readOnly = true;
+        inp.title = 'Término del glosario oficial: no se puede modificar';
+      } else {
+        inp.oninput = () => { glossary[i][field] = inp.value; glossSave(); };
+      }
       td.appendChild(inp);
       tr.appendChild(td);
     });
     const tdDel = document.createElement('td');
-    const del = document.createElement('button');
-    del.className = 'gloss-del'; del.textContent = '✕'; del.title = 'Eliminar término';
-    del.onclick = () => { glossary.splice(i, 1); glossSave(); glossRender(); };
-    tdDel.appendChild(del);
+    if (!g.fixed) {
+      const del = document.createElement('button');
+      del.className = 'gloss-del'; del.textContent = '✕'; del.title = 'Eliminar término';
+      del.onclick = () => { glossary.splice(i, 1); glossSave(); glossRender(); };
+      tdDel.appendChild(del);
+    }
     tr.appendChild(tdDel);
     body.appendChild(tr);
   });
@@ -294,8 +295,8 @@ function glossAdd() {
 }
 
 function glossReset() {
-  if (!confirm('¿Restaurar el glosario por defecto? Se perderán los términos personalizados.')) return;
-  glossary = GLOSS_DEFAULTS.map(g => ({...g}));
+  if (!confirm('¿Restaurar el glosario por defecto? Se perderán los términos añadidos en esta sesión.')) return;
+  glossary = GLOSS_DEFAULTS.map(g => ({...g, fixed: true}));
   glossSave(); glossRender();
 }
 
