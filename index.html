@@ -88,6 +88,18 @@
   .out-en h4 { color: #1a9e5c; }
 
   .note { font-size: 11px; color: #888; }
+
+  /* Glosario */
+  details.gloss summary { cursor: pointer; font-size: 13px; font-weight: 700; color: #0d3a6e; user-select: none; }
+  .gloss-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+  .gloss-table th { background: #f0f4fa; text-align: left; padding: 6px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #555; }
+  .gloss-table td { border-bottom: 1px solid #e6ecf4; padding: 3px 4px; }
+  .gloss-table input { width: 100%; border: 1px solid transparent; border-radius: 4px; padding: 5px 7px; font-size: 12px; background: transparent; }
+  .gloss-table input:hover { border-color: #c8d4e4; }
+  .gloss-table input:focus { outline: none; border-color: #1a6ecf; background: #fff; }
+  .gloss-table .g-term input { font-weight: 700; }
+  .gloss-del { border: none; background: transparent; color: #c0392b; cursor: pointer; font-size: 13px; padding: 4px 8px; }
+  .gloss-hint { font-size: 11px; color: #888; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -103,6 +115,22 @@
     <button class="btn btn-danger"  onclick="resetear()">✕ Limpiar todo</button>
     <span class="note">Al renderizar podrás editar cada celda visualmente en los 4 idiomas.</span>
   </div>
+</div>
+
+<!-- GLOSARIO -->
+<div class="card">
+  <details class="gloss" id="gloss-details">
+    <summary>📖 Glosario de términos protegidos <span class="note" id="gloss-count"></span></summary>
+    <div class="gloss-hint">Estos términos nunca se envían al traductor automático: se sustituyen por la traducción fija de cada idioma (o se dejan tal cual si la casilla está vacía). Los cambios se guardan automáticamente en este navegador.</div>
+    <table class="gloss-table">
+      <thead><tr><th>Término (ES)</th><th>CA</th><th>FR</th><th>EN</th><th></th></tr></thead>
+      <tbody id="gloss-body"></tbody>
+    </table>
+    <div class="toolbar" style="margin-top:10px;">
+      <button class="btn btn-copy" onclick="glossAdd()">+ Añadir término</button>
+      <button class="btn btn-copy" onclick="glossReset()">↺ Restaurar por defecto</button>
+    </div>
+  </details>
 </div>
 
 <!-- PASO 2 -->
@@ -156,6 +184,148 @@
 
 <script>
 const LANGS = ['es','ca','fr','en'];
+
+/* ─── Glosario de términos protegidos ───
+   term = texto en ES (coincidencia exacta de palabra, sin distinguir mayúsculas).
+   ca/fr/en = traducción fija; vacío = dejar el término tal cual. */
+const GLOSS_DEFAULTS = [
+  { term:'Grandvalira',      ca:'', fr:'', en:'' },
+  { term:'Pal Arinsal',      ca:'', fr:'', en:'' },
+  { term:'Ordino Arcalís',   ca:'', fr:'', en:'' },
+  { term:'Nord Pass',        ca:'', fr:'', en:'' },
+  { term:'Mountain Pass',    ca:'', fr:'', en:'' },
+  { term:'Bike Pass',        ca:'', fr:'', en:'' },
+  { term:'Top Class',        ca:'', fr:'', en:'' },
+  { term:'Mountain Guides',  ca:'', fr:'', en:'' },
+  { term:'SmartGuard',       ca:'', fr:'', en:'' },
+  { term:'Senior Gold',      ca:'', fr:'', en:'' },
+  { term:'Snow Garden',      ca:'', fr:'', en:'' },
+  { term:'Els Marrecs',      ca:'', fr:'', en:'' },
+  { term:'Els Vailets',      ca:'', fr:'', en:'' },
+  { term:'Tristaina',        ca:'', fr:'', en:'' },
+  { term:'Grandvalira Resorts', ca:'', fr:'', en:'' },
+  { term:'Andorra Pass',     ca:'', fr:'', en:'' },
+  { term:'Ikon Pass',        ca:'', fr:'', en:'' },
+  { term:'Basic Pass',       ca:'', fr:'', en:'' },
+  { term:'Forfait Plus+',    ca:'', fr:'', en:'' },
+  { term:'Plus+',            ca:'', fr:'', en:'' },
+  { term:'My GrandSki',      ca:'', fr:'', en:'' },
+  { term:'Funicamp',         ca:'', fr:'', en:'' },
+  { term:'Mon(t) Magic',     ca:'', fr:'', en:'' },
+  { term:'Màgic Gliss',      ca:'', fr:'', en:'' },
+  { term:'Snake Gliss',      ca:'', fr:'', en:'' },
+  { term:'Grandvalira Tour', ca:'', fr:'', en:'' },
+  { term:'GMG',              ca:'', fr:'', en:'' },
+  { term:'Freeride',         ca:'', fr:'', en:'' },
+  { term:'Pas de la Casa',   ca:'', fr:'', en:'' },
+  { term:'Grau Roig',        ca:'', fr:'', en:'' },
+  { term:'El Tarter',        ca:'', fr:'', en:'' },
+  { term:'Soldeu',           ca:'', fr:'', en:'' },
+  { term:'Canillo',          ca:'', fr:'', en:'' },
+  { term:'Encamp',           ca:'', fr:'', en:'' },
+  { term:'Peretol',          ca:'', fr:'', en:'' },
+  { term:'Baby',             ca:'', fr:'', en:'' },
+  { term:'Freestyle',        ca:'', fr:'', en:'' },
+  { term:'Kids',             ca:'', fr:'', en:'' },
+  { term:'forfait',          ca:'forfait', fr:'forfait', en:'ski pass' },
+  { term:'forfaits',         ca:'forfaits', fr:'forfaits', en:'ski passes' },
+  { term:'debutante',        ca:'debutant', fr:'débutant', en:'beginner' },
+  { term:'taquillas',        ca:'taquilles', fr:'guichets', en:'ticket offices' },
+  { term:'taquilla',         ca:'taquilla', fr:'guichet', en:'ticket office' },
+];
+const GLOSS_KEY = 'traductor-visual-glosario';
+let glossary = [];
+
+function glossLoad() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(GLOSS_KEY));
+    glossary = Array.isArray(saved) && saved.length ? saved : GLOSS_DEFAULTS.map(g => ({...g}));
+  } catch(e) { glossary = GLOSS_DEFAULTS.map(g => ({...g})); }
+  // Fusionar: términos nuevos añadidos al código (GLOSS_DEFAULTS) que aún no
+  // estén en el glosario guardado del navegador se incorporan automáticamente.
+  const existing = new Set(glossary.map(g => g.term.trim().toLowerCase()));
+  GLOSS_DEFAULTS.forEach(d => {
+    if (!existing.has(d.term.trim().toLowerCase())) glossary.push({...d});
+  });
+  glossRender();
+}
+
+function glossSave() {
+  localStorage.setItem(GLOSS_KEY, JSON.stringify(glossary));
+  glossCount();
+}
+
+function glossCount() {
+  const n = glossary.filter(g => g.term.trim()).length;
+  document.getElementById('gloss-count').textContent = '(' + n + ' términos)';
+}
+
+function glossRender() {
+  const body = document.getElementById('gloss-body');
+  body.innerHTML = '';
+  glossary.forEach((g, i) => {
+    const tr = document.createElement('tr');
+    ['term','ca','fr','en'].forEach(field => {
+      const td = document.createElement('td');
+      if (field === 'term') td.className = 'g-term';
+      const inp = document.createElement('input');
+      inp.value = g[field];
+      inp.placeholder = field === 'term' ? 'término en español' : '(no traducir)';
+      inp.oninput = () => { glossary[i][field] = inp.value; glossSave(); };
+      td.appendChild(inp);
+      tr.appendChild(td);
+    });
+    const tdDel = document.createElement('td');
+    const del = document.createElement('button');
+    del.className = 'gloss-del'; del.textContent = '✕'; del.title = 'Eliminar término';
+    del.onclick = () => { glossary.splice(i, 1); glossSave(); glossRender(); };
+    tdDel.appendChild(del);
+    tr.appendChild(tdDel);
+    body.appendChild(tr);
+  });
+  glossCount();
+}
+
+function glossAdd() {
+  glossary.push({ term:'', ca:'', fr:'', en:'' });
+  glossSave(); glossRender();
+  const rows = document.querySelectorAll('#gloss-body tr');
+  rows[rows.length-1]?.querySelector('input')?.focus();
+}
+
+function glossReset() {
+  if (!confirm('¿Restaurar el glosario por defecto? Se perderán los términos personalizados.')) return;
+  glossary = GLOSS_DEFAULTS.map(g => ({...g}));
+  glossSave(); glossRender();
+}
+
+/* Sustituye términos del glosario por marcadores ⟦n⟧ antes de traducir */
+function glossProtect(text) {
+  const active = glossary.filter(g => g.term.trim())
+    .sort((a, b) => b.term.length - a.term.length);
+  const found = [];
+  let out = text;
+  active.forEach(g => {
+    const escaped = g.term.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('(?<![\\p{L}\\p{N}])' + escaped + '(?![\\p{L}\\p{N}])', 'giu');
+    out = out.replace(re, match => {
+      const idx = found.length;
+      found.push({ entry: g, original: match });
+      return '⟦' + idx + '⟧';
+    });
+  });
+  return { text: out, found };
+}
+
+/* Restaura los marcadores con la traducción fija del idioma (o el término original) */
+function glossRestore(text, found, lang) {
+  return text.replace(/⟦\s*(\d+)\s*⟧/g, (m, n) => {
+    const f = found[parseInt(n)];
+    if (!f) return m;
+    return f.entry[lang]?.trim() || f.original;
+  });
+}
+
 const store  = { es:'', ca:'', fr:'', en:'' };
 const errors = { es:false, ca:false, fr:false, en:false };
 let currentLang = 'es';
@@ -281,12 +451,19 @@ async function autoTraducir() {
 async function traducirTextos(textos, lang, onProgress) {
   const tmap = {};
   await Promise.all(textos.map(async text => {
+    const { text: protectedText, found } = glossProtect(text);
+    // Si tras proteger no queda nada traducible, resolvemos sin llamar a la API
+    if (!/\p{L}/u.test(protectedText.replace(/⟦\s*\d+\s*⟧/g, ''))) {
+      tmap[text] = glossRestore(protectedText, found, lang);
+      onProgress();
+      return;
+    }
     try {
       const res = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl='
-        + lang + '&dt=t&q=' + encodeURIComponent(text));
+        + lang + '&dt=t&q=' + encodeURIComponent(protectedText));
       const data = await res.json();
       const translated = data[0]?.map(s => s[0]).join('') || '';
-      tmap[text] = translated || '__ERROR__';
+      tmap[text] = translated ? glossRestore(translated, found, lang) : '__ERROR__';
     } catch(e) {
       tmap[text] = '__ERROR__';
     }
@@ -347,6 +524,8 @@ function cleanHTML(html) {
   doc.querySelectorAll('div:empty, span:empty').forEach(el => el.remove());
   return doc.body.innerHTML;
 }
+
+glossLoad();
 
 function copiar(id, btn) {
   const text = document.getElementById(id).value;
