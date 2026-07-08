@@ -148,6 +148,8 @@
     <button class="lang-tab" data-lang="ca" onclick="switchTab('ca')" disabled>🏔 CA<span class="tab-dot"></span></button>
     <button class="lang-tab" data-lang="fr" onclick="switchTab('fr')" disabled>🇫🇷 FR<span class="tab-dot"></span></button>
     <button class="lang-tab" data-lang="en" onclick="switchTab('en')" disabled>🇬🇧 EN<span class="tab-dot"></span></button>
+    <button class="btn btn-copy" onclick="undo()" title="Deshacer último cambio en este idioma" style="margin-left:12px;">↶ Deshacer</button>
+    <button class="btn btn-copy" onclick="redo()" title="Rehacer">↷ Rehacer</button>
   </div>
   <div id="untranslated-warn" class="untranslated">
     ⚠ Algunos textos no se pudieron traducir y se han dejado en español. Revisa y corrige manualmente.
@@ -331,6 +333,42 @@ const store  = { es:'', ca:'', fr:'', en:'' };
 const errors = { es:false, ca:false, fr:false, en:false };
 let currentLang = 'es';
 let ready = false;
+const history = { es: [], ca: [], fr: [], en: [] };
+const historyIndex = { es: -1, ca: -1, fr: -1, en: -1 };
+
+function historyPush(lang, html) {
+  const stack = history[lang].slice(0, historyIndex[lang] + 1);
+  if (stack[stack.length - 1] === html) { history[lang] = stack; return; }
+  stack.push(html);
+  history[lang] = stack;
+  historyIndex[lang] = stack.length - 1;
+}
+
+function historyReset(lang, html) {
+  history[lang] = [html];
+  historyIndex[lang] = 0;
+}
+
+function undo() {
+  saveEdits();
+  const lang = currentLang;
+  if (historyIndex[lang] <= 0) return;
+  historyIndex[lang]--;
+  store[lang] = history[lang][historyIndex[lang]];
+  const preview = document.getElementById('preview');
+  preview.innerHTML = store[lang];
+  makeEditable(preview);
+}
+
+function redo() {
+  const lang = currentLang;
+  if (historyIndex[lang] >= history[lang].length - 1) return;
+  historyIndex[lang]++;
+  store[lang] = history[lang][historyIndex[lang]];
+  const preview = document.getElementById('preview');
+  preview.innerHTML = store[lang];
+  makeEditable(preview);
+}
 let translating = false;
 
 /* Elimina estilos, scripts y demás elementos de página completa para que el
@@ -353,7 +391,7 @@ function renderizar() {
   const html = document.getElementById('input-html').value.trim();
   if (!html) return;
   const limpio = sanitizarHTML(html);
-  LANGS.forEach(l => { store[l] = limpio; errors[l] = false; });
+  LANGS.forEach(l => { store[l] = limpio; errors[l] = false; historyReset(l, limpio); });
   LANGS.forEach(l => setTabState(l, 'none'));
   ready = false;
   switchTab('es');
@@ -366,7 +404,7 @@ function renderizar() {
 function resetear() {
   if (!confirm('¿Limpiar todo y empezar de nuevo?')) return;
   document.getElementById('input-html').value = '';
-  LANGS.forEach(l => { store[l] = ''; errors[l] = false; setTabState(l, 'none'); });
+  LANGS.forEach(l => { store[l] = ''; errors[l] = false; setTabState(l, 'none'); historyReset(l, ''); });
   ready = false;
   currentLang = 'es';
   document.getElementById('preview').innerHTML = '<p style="color:#bbb;font-style:italic">Renderiza el HTML para empezar a editar…</p>';
@@ -394,7 +432,9 @@ function switchTab(lang) {
 }
 
 function saveEdits() {
-  store[currentLang] = document.getElementById('preview').innerHTML;
+  const html = document.getElementById('preview').innerHTML;
+  store[currentLang] = html;
+  historyPush(currentLang, html);
 }
 
 function makeEditable(root) {
@@ -405,10 +445,28 @@ function makeEditable(root) {
 function fixTableCells(root) {
   root.querySelectorAll('table').forEach(table => {
     const rows = Array.from(table.querySelectorAll('tr'));
-    const effectiveCols = r => Array.from(r.cells).reduce((s, c) => s + (parseInt(c.getAttribute('colspan')) || 1), 0);
-    const maxCols = Math.max(...rows.map(effectiveCols));
-    rows.forEach(row => {
-      while (effectiveCols(row) < maxCols) row.insertCell(-1);
+    // Construye una rejilla que respeta colspan/rowspan para saber qué
+    // columnas ya están ocupadas por celdas de filas anteriores.
+    const grid = [];
+    rows.forEach((row, rIdx) => {
+      grid[rIdx] = grid[rIdx] || [];
+      let col = 0;
+      Array.from(row.cells).forEach(cell => {
+        while (grid[rIdx][col]) col++;
+        const colspan = parseInt(cell.getAttribute('colspan')) || 1;
+        const rowspan = parseInt(cell.getAttribute('rowspan')) || 1;
+        for (let rs = 0; rs < rowspan; rs++) {
+          grid[rIdx + rs] = grid[rIdx + rs] || [];
+          for (let cs = 0; cs < colspan; cs++) grid[rIdx + rs][col + cs] = true;
+        }
+        col += colspan;
+      });
+    });
+    const maxCols = Math.max(...grid.map(g => g.length));
+    rows.forEach((row, rIdx) => {
+      let filled = 0;
+      for (let c = 0; c < maxCols; c++) if (grid[rIdx][c]) filled++;
+      while (filled < maxCols) { row.insertCell(-1); filled++; }
     });
   });
 }
@@ -453,6 +511,7 @@ async function autoTraducir() {
     });
     errors[lang] = langError;
     store[lang] = doc.body.innerHTML;
+    historyPush(lang, store[lang]);
     setTabState(lang, langError ? 'error' : 'ok');
   }
 
@@ -476,15 +535,18 @@ async function traducirTextos(textos, lang, onProgress) {
       onProgress();
       return;
     }
-    try {
-      const res = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl='
-        + lang + '&dt=t&q=' + encodeURIComponent(protectedText));
-      const data = await res.json();
-      const translated = data[0]?.map(s => s[0]).join('') || '';
-      tmap[text] = translated ? glossRestore(translated, found, lang) : '__ERROR__';
-    } catch(e) {
-      tmap[text] = '__ERROR__';
+    let translated = '';
+    for (let intento = 0; intento < 3 && !translated; intento++) {
+      try {
+        if (intento > 0) await new Promise(r => setTimeout(r, 1000 * intento));
+        const res = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl='
+          + lang + '&dt=t&q=' + encodeURIComponent(protectedText));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        translated = data[0]?.map(s => s[0]).join('') || '';
+      } catch(e) { /* reintenta */ }
     }
+    tmap[text] = translated ? glossRestore(translated, found, lang) : '__ERROR__';
     onProgress();
   }));
   return tmap;
@@ -548,11 +610,35 @@ glossLoad();
 function copiar(id, btn) {
   const text = document.getElementById(id).value;
   if (!text) return;
-  navigator.clipboard.writeText(text).then(() => {
+  const marcarCopiado = () => {
     btn.textContent = '✓ Copiado';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Copiar'; btn.classList.remove('copied'); }, 2000);
-  });
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(marcarCopiado).catch(() => copiarFallback(text, marcarCopiado));
+  } else {
+    copiarFallback(text, marcarCopiado);
+  }
+}
+
+/* Alternativa para contextos no seguros (file://, http sin TLS) donde
+   navigator.clipboard no está disponible o falla silenciosamente. */
+function copiarFallback(text, onOk) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand('copy');
+    onOk();
+  } catch (e) {
+    alert('No se pudo copiar automáticamente. Selecciona el texto y copia manualmente (Ctrl+C).');
+  }
+  document.body.removeChild(ta);
 }
 </script>
 </body>
