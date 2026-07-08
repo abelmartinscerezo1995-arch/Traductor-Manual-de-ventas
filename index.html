@@ -608,23 +608,33 @@ function cleanHTML(html) {
 glossLoad();
 
 function copiar(id, btn) {
-  const text = document.getElementById(id).value;
+  const el = document.getElementById(id);
+  const text = el.value;
   if (!text) return;
   const marcarCopiado = () => {
     btn.textContent = '✓ Copiado';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Copiar'; btn.classList.remove('copied'); }, 2000);
   };
+  // Si falla el copiado programático (frecuente dentro de iframes con
+  // permisos restringidos, p.ej. la versión embebida en Streamlit),
+  // seleccionamos el texto para que el usuario pueda pulsar Ctrl+C.
+  const seleccionarManual = () => {
+    el.focus();
+    el.select();
+    btn.textContent = '⚠ Pulsa Ctrl+C';
+    setTimeout(() => { btn.textContent = 'Copiar'; }, 2500);
+  };
   if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(marcarCopiado).catch(() => copiarFallback(text, marcarCopiado));
+    navigator.clipboard.writeText(text).then(marcarCopiado).catch(() => copiarFallback(text, marcarCopiado, seleccionarManual));
   } else {
-    copiarFallback(text, marcarCopiado);
+    copiarFallback(text, marcarCopiado, seleccionarManual);
   }
 }
 
-/* Alternativa para contextos no seguros (file://, http sin TLS) donde
-   navigator.clipboard no está disponible o falla silenciosamente. */
-function copiarFallback(text, onOk) {
+/* Alternativa para contextos donde navigator.clipboard no está disponible
+   o falla (file://, http sin TLS, o iframes con permisos restringidos). */
+function copiarFallback(text, onOk, onFail) {
   const ta = document.createElement('textarea');
   ta.value = text;
   ta.style.position = 'fixed';
@@ -632,13 +642,10 @@ function copiarFallback(text, onOk) {
   document.body.appendChild(ta);
   ta.focus();
   ta.select();
-  try {
-    document.execCommand('copy');
-    onOk();
-  } catch (e) {
-    alert('No se pudo copiar automáticamente. Selecciona el texto y copia manualmente (Ctrl+C).');
-  }
+  let copiado = false;
+  try { copiado = document.execCommand('copy'); } catch (e) { copiado = false; }
   document.body.removeChild(ta);
+  if (copiado) onOk(); else onFail();
 }
 </script>
 </body>
