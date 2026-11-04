@@ -166,6 +166,7 @@
     <button class="btn btn-success" onclick="generar()" id="btn-generar" disabled>⬇ Generar HTML</button>
     <span style="color:#c0392b; font-weight:700; font-size:19px; margin-left:20px;">⚠ Revisar links manualmente antes de publicar ⚠</span>
   </div>
+  <div id="gen-warn" class="untranslated"></div>
   <div class="outputs">
     <div class="out-box out-es">
       <div class="out-box-header"><h4>Español (ES)</h4><button class="btn btn-copy" onclick="copiar('out-es',this)">Copiar</button></div>
@@ -190,7 +191,8 @@
 const LANGS = ['es','ca','fr','en'];
 
 /* ─── Glosario de términos protegidos ───
-   term = texto en ES (coincidencia exacta de palabra, sin distinguir mayúsculas).
+   term = texto en ES (coincidencia exacta de palabra, sin distinguir mayúsculas,
+   salvo exacto:true, que solo protege el término tal como está escrito).
    ca/fr/en = traducción fija; vacío = dejar el término tal cual. */
 const GLOSS_DEFAULTS = [
   { term:'Grandvalira',      ca:'', fr:'', en:'' },
@@ -231,6 +233,12 @@ const GLOSS_DEFAULTS = [
   { term:'Baby',             ca:'', fr:'', en:'' },
   { term:'Freestyle',        ca:'', fr:'', en:'' },
   { term:'Kids',             ca:'', fr:'', en:'' },
+  { term:'Online',           ca:'', fr:'en ligne', en:'' },
+  { term:'TA',               ca:'', fr:'', en:'', exacto:true },
+  { term:'TM',               ca:'', fr:'', en:'', exacto:true },
+  { term:'TB',               ca:'', fr:'', en:'', exacto:true },
+  { term:'AD',               ca:'', fr:'', en:'', exacto:true },
+  { term:'MP',               ca:'', fr:'', en:'', exacto:true },
   { term:'forfait',          ca:'forfait', fr:'forfait', en:'ski pass' },
   { term:'forfaits',         ca:'forfaits', fr:'forfaits', en:'ski passes' },
   { term:'debutante',        ca:'debutant', fr:'débutant', en:'beginner' },
@@ -310,7 +318,7 @@ function glossProtect(text) {
   let out = text;
   active.forEach(g => {
     const escaped = g.term.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp('(?<![\\p{L}\\p{N}])' + escaped + '(?![\\p{L}\\p{N}])', 'giu');
+    const re = new RegExp('(?<![\\p{L}\\p{N}])' + escaped + '(?![\\p{L}\\p{N}])', g.exacto ? 'gu' : 'giu');
     out = out.replace(re, match => {
       const idx = found.length;
       found.push({ entry: g, original: match });
@@ -320,12 +328,23 @@ function glossProtect(text) {
   return { text: out, found };
 }
 
+/* Da a una traducción fija las mayúsculas del original:
+   FORFAIT → SKI PASS · Forfait → Ski pass · forfait → ski pass */
+function igualarMayusculas(original, traduccion) {
+  const letras = original.replace(/[^\p{L}]/gu, '');
+  if (letras.length > 1 && letras === letras.toUpperCase()) return traduccion.toUpperCase();
+  const primera = letras.charAt(0);
+  if (primera && primera !== primera.toLowerCase()) return traduccion.charAt(0).toUpperCase() + traduccion.slice(1);
+  return traduccion;
+}
+
 /* Restaura los marcadores con la traducción fija del idioma (o el término original) */
 function glossRestore(text, found, lang) {
   return text.replace(/⟦\s*(\d+)\s*⟧/g, (m, n) => {
     const f = found[parseInt(n)];
     if (!f) return m;
-    return f.entry[lang]?.trim() || f.original;
+    const fija = f.entry[lang]?.trim();
+    return fija ? igualarMayusculas(f.original, fija) : f.original;
   });
 }
 
@@ -370,6 +389,7 @@ function redo() {
   makeEditable(preview);
 }
 let translating = false;
+let traducido = false;  // ¿el bloque actual ya ha pasado por Auto-traducir?
 
 /* Elimina estilos, scripts y demás elementos de página completa para que el
    HTML pegado no afecte al aspecto del propio traductor */
@@ -387,12 +407,29 @@ function sanitizarHTML(html) {
   return doc.body.innerHTML;
 }
 
+/* Vacía los cuadros de resultado para que no quede HTML de un bloque anterior */
+function limpiarResultados() {
+  LANGS.forEach(l => document.getElementById('out-'+l).value = '');
+  avisoGenerar('');
+}
+
+function avisoGenerar(msg) {
+  const el = document.getElementById('gen-warn');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
 function renderizar() {
+  if (translating) { setStatus('Espera a que termine la traducción antes de renderizar otro bloque.', 'error'); return; }
   const html = document.getElementById('input-html').value.trim();
   if (!html) return;
   const limpio = sanitizarHTML(html);
   LANGS.forEach(l => { store[l] = limpio; errors[l] = false; historyReset(l, limpio); });
   LANGS.forEach(l => setTabState(l, 'none'));
+  limpiarResultados();
+  traducido = false;
+  // CA / FR / EN no se pueden abrir hasta traducir este bloque
+  document.querySelectorAll('.lang-tab').forEach(t => { t.disabled = t.dataset.lang !== 'es'; });
   ready = false;
   switchTab('es');
   ready = true;
@@ -402,16 +439,18 @@ function renderizar() {
 }
 
 function resetear() {
+  if (translating) { setStatus('Espera a que termine la traducción antes de limpiar.', 'error'); return; }
   if (!confirm('¿Limpiar todo y empezar de nuevo?')) return;
   document.getElementById('input-html').value = '';
   LANGS.forEach(l => { store[l] = ''; errors[l] = false; setTabState(l, 'none'); historyReset(l, ''); });
   ready = false;
+  traducido = false;
   currentLang = 'es';
   document.getElementById('preview').innerHTML = '<p style="color:#bbb;font-style:italic">Renderiza el HTML para empezar a editar…</p>';
   document.getElementById('preview').className = 'preview-wrap lang-es';
   document.getElementById('btn-traducir').disabled = true;
   document.getElementById('btn-generar').disabled = true;
-  LANGS.forEach(l => document.getElementById('out-'+l).value = '');
+  limpiarResultados();
   document.querySelectorAll('.lang-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.lang === 'es');
     if (t.dataset.lang !== 'es') t.disabled = true;
@@ -474,7 +513,9 @@ function fixTableCells(root) {
 async function autoTraducir() {
   if (!ready || translating) return;
   translating = true;
+  traducido = false;
   saveEdits();
+  limpiarResultados();
   const btn = document.getElementById('btn-traducir');
   btn.disabled = true;
   document.getElementById('progress-wrap').style.display = 'block';
@@ -522,6 +563,7 @@ async function autoTraducir() {
   setProgress(0);
   setStatus(anyError ? '⚠ Traducción completada con algunos errores. Revisa las pestañas en rojo.' : '✓ Traducción completada. Revisa cada pestaña y corrige si hace falta.', anyError ? 'error' : 'ok');
   translating = false;
+  traducido = true;
   switchTab(currentLang);
 }
 
@@ -529,6 +571,12 @@ async function traducirTextos(textos, lang, onProgress) {
   const tmap = {};
   await Promise.all(textos.map(async text => {
     const { text: protectedText, found } = glossProtect(text);
+    const corta = found.length ? null : palabraCorta(text);
+    if (corta) {
+      tmap[text] = igualarMayusculas(text, corta[lang]);
+      onProgress();
+      return;
+    }
     // Si tras proteger no queda nada traducible, resolvemos sin llamar a la API
     if (!/\p{L}/u.test(protectedText.replace(/⟦\s*\d+\s*⟧/g, ''))) {
       tmap[text] = glossRestore(protectedText, found, lang);
@@ -558,15 +606,50 @@ function collectTextNodes(root) {
   let node;
   while ((node = walker.nextNode())) {
     const t = node.nodeValue.trim();
-    if (t && !isSkippable(t) && !node.parentElement.closest('a')) nodes.push(node);
+    if (t && !isSkippable(t)) nodes.push(node);
   }
   return nodes;
 }
 
+/* Palabras de menos de 3 letras que sí se traducen. Llevan traducción fija porque,
+   solas, el traductor automático falla («Sí» → «Ouais» / «Yeah», «el» → «he»).
+   Cualquier otro texto tan corto se deja igual: TA, TB, AD, MP, A, B, x, 4h, 1)… */
+const PALABRAS_CORTAS = {
+  'sí': { ca:'sí', fr:'oui', en:'yes' },
+  'si': { ca:'si', fr:'si',  en:'if' },
+  'no': { ca:'no', fr:'non', en:'no' },
+  'y':  { ca:'i',  fr:'et',  en:'and' },
+  'e':  { ca:'i',  fr:'et',  en:'and' },
+  'o':  { ca:'o',  fr:'ou',  en:'or' },
+  'u':  { ca:'o',  fr:'ou',  en:'or' },
+  'ni': { ca:'ni', fr:'ni',  en:'nor' },
+  'a':  { ca:'a',  fr:'à',   en:'to' },
+  'de': { ca:'de', fr:'de',  en:'of' },
+  'en': { ca:'a',  fr:'en',  en:'in' },
+  'al': { ca:'al', fr:'au',  en:'to the' },
+  'el': { ca:'el', fr:'le',  en:'the' },
+  'la': { ca:'la', fr:'la',  en:'the' },
+  'un': { ca:'un', fr:'un',  en:'a' },
+};
+
+/* Devuelve la traducción fija de una palabra corta, o null si no hay que traducirla.
+   En mayúsculas solo cuentan SÍ, SI y NO: lo demás (TA, AD, A…) son códigos.
+   «Si» y «SI» sin acento, solos, se entienden como «Sí» (columna Sí / No de una tabla). */
+function palabraCorta(text) {
+  if (text.length >= 3) return null;
+  if (text === 'Si' || text === 'SI') return PALABRAS_CORTAS['sí'];
+  if (text === text.toUpperCase() && text !== 'SÍ' && text !== 'NO') return null;
+  const clave = text.toLowerCase();
+  return Object.hasOwn(PALABRAS_CORTAS, clave) ? PALABRAS_CORTAS[clave] : null;
+}
+
 function isSkippable(text) {
-  if (text.length < 3) return true;
+  if (text.length < 3 && !palabraCorta(text)) return true;
   if (/^[\d\s€%&;.,:\-+]+$/.test(text)) return true;
-  if (/^https?:\/\//.test(text)) return true;
+  if (/^(https?:\/\/|www\.)/i.test(text)) return true;
+  // Texto de enlace que es una dirección: correos (también recortados, «nombre@gr...») y dominios
+  if (/^\S*@\S*$/.test(text)) return true;
+  if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(text)) return true;
   return false;
 }
 
@@ -590,9 +673,18 @@ function setStatus(msg, type) {
 
 function generar() {
   saveEdits();
+  if (!traducido) {
+    // Sin traducir, CA / FR / EN serían español: solo se genera el español y se avisa
+    document.getElementById('out-es').value = cleanHTML(store['es'] || '');
+    ['ca','fr','en'].forEach(l => document.getElementById('out-'+l).value = '');
+    avisoGenerar('⚠ Este bloque aún no está traducido: solo se ha generado el español. Pulsa «Auto-traducir» y vuelve a generar.');
+    return;
+  }
   LANGS.forEach(lang => {
     document.getElementById('out-'+lang).value = cleanHTML(store[lang] || '');
   });
+  const conError = ['ca','fr','en'].filter(l => errors[l]).map(l => l.toUpperCase());
+  avisoGenerar(conError.length ? '⚠ Quedan textos en español en ' + conError.join(', ') + ': revísalos antes de copiar.' : '');
 }
 
 function cleanHTML(html) {
